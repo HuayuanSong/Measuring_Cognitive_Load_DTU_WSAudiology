@@ -195,7 +195,7 @@ def cross_validate(data,node_min=2,node_max=5,n_nodes=4):
                 df = pd.concat([df, df_], ignore_index = True)
 
                 i += 1
-            df.to_pickle("local_data/results/result_%i_%i.pkl" %(TA, SNR))
+            df.to_pickle("local_data/results/ANN_1_Hidden_FCs_%i_%i.pkl" %(TA, SNR))
     return df
 
 
