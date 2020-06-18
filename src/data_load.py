@@ -10,7 +10,7 @@ from signal_processing import * # Signal processing functions
 from scipy import stats
 #from mne.filter import filter_data
 
-def getData(params = None, data_path = "local_data/trials.pkl", TA_path = "local_data/EEG/", speech_path = "local_data/audio/"):
+def getData(params = None, data_path = "/content/Measuring_Cognitive_Load_DTU_WSAudiology/local_data/trials.pkl", TA_path = "local_data/EEG/", speech_path = "local_data/audio/"):
     """
     Input:
         params      = List of parameters for the analysis (check function for default)
