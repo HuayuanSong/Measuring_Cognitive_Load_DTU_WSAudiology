@@ -4,7 +4,7 @@
 Predict speech envelope from EEG using ANN
 
 Build ANN model with 1 hidden layer using Keras for every SNR value; I.e., -5, 0 & 5 DB, respectively. 
-Trains using 2-layer leave-trial-out CV, to find number of nodes in first hidden layer. 
+Trains using 2-layer leave-trial-out CV, to find number of nodes in the hidden layer. 
 Pearson's R correlation coefficient is used as loss function; and for validation.
     
 """
@@ -32,6 +32,11 @@ def corr_loss(act,pred):
 
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
+def corr(act,pred):          
+    cov=(K.mean((act-K.mean(act))*(pred-K.mean(pred))))
+    return (cov/(K.std(act)*K.std(pred)+K.epsilon()))
+
+# Modified above function to use for Pearson R correlation coefficient calculation
 def cross_validate(data,node_min=2,node_max=5,n_nodes=4):
     
     """
@@ -118,17 +123,21 @@ def cross_validate(data,node_min=2,node_max=5,n_nodes=4):
                     for l in nodes:
                         # Define model with l parameter
                         model = Sequential()
+                        
+                        # Batch normalization
                         model.add(BatchNormalization())
                         model.add(Dense(units=l, activation='tanh',input_shape=(inn_X_train.shape[0], inn_X_train.shape[1])))
                         model.add(Dropout(0.5))
+                        
+                        # Batch normalization
                         model.add(BatchNormalization())
                         model.add(Dense(units=1, activation='linear'))
                         model.compile(optimizer='rmsprop', loss=corr_loss)
                         model.fit(np.asarray(inn_X_train), np.asarray(inn_y_train), epochs=30, verbose=2, shuffle=False)     
 
+                        results = model.evaluate(np.asarray(inn_X_test), np.asarray(inn_y_test))
                         # Compute Pearson R correlation for regressional value
-                        val = abs(pearsonr(np.asarray(inn_y_test).reshape(-1, 1),model.predict(np.asarray(inn_X_test)))[0])
-                        # Add score to matrix
+                        val = results
                         vals[j, k] = val
 
                         k += 1
@@ -158,11 +167,13 @@ def cross_validate(data,node_min=2,node_max=5,n_nodes=4):
                 # Predict envelope
                 y_pred = model_opt.predict(np.asarray(X_test))
                 
+                """
                 plt.style.use('ggplot')
                 plt.plot(y_test, label="True value")
                 plt.plot(y_pred, label="Predicted value")
                 plt.legend()
                 plt.show()
+                """
 
                 trial_test = np.unique(data_sub.iloc[out_test_idx]["trial"])[0]
                 
@@ -170,21 +181,21 @@ def cross_validate(data,node_min=2,node_max=5,n_nodes=4):
                 y_rand = random_trial(data, TA = TA, trial = trial_test)["target"]
                 
                 # Compute Pearson R between predicted envelope and attended speech
-                corr_true = pearsonr(y_pred, np.asarray(y_test).reshape(-1, 1))
+                corr_true = corr(K.constant(np.asarray(y_test)),K.constant(y_pred))
                 
                 # Compute Pearson R between predicted envelope and unattended speech
-                corr_mask = pearsonr(y_pred, np.asarray(masks.iloc[out_test_idx]).reshape(-1, 1))
+                corr_mask = corr(K.constant(np.asarray(masks.iloc[out_test_idx])),K.constant(y_pred))
                 
                 # Compute Pearson R between predicted envelope and random speech
-                corr_rand = pearsonr(y_pred, np.asarray(y_rand).reshape(-1, 1))
+                corr_rand = corr(K.constant(np.asarray(y_rand)),K.constant(y_pred))
 
                 # Evaluate envelope, compare with random trial
                 ### Add correlations to dataframe ###
                 # Convert to DataFrame
                 data_results = np.zeros((1, len(df_cols)))
-                data_results[:, 0] = corr_true[0]
-                data_results[:, 1] = corr_mask[0]
-                data_results[:, 2] = corr_rand[0]
+                data_results[:, 0] = np.asarray(corr_true)
+                data_results[:, 1] = np.asarray(corr_mask)
+                data_results[:, 2] = np.asarray(corr_rand)
                 data_results[:, 3] = TA
                 data_results[:, 4] = SNR
                 data_results[:, 5] = node_opt
@@ -193,9 +204,10 @@ def cross_validate(data,node_min=2,node_max=5,n_nodes=4):
 
                 # Concatenate
                 df = pd.concat([df, df_], ignore_index = True)
+                print(df)
 
                 i += 1
-            df.to_pickle("local_data/results/ANN_1_Hidden_FCs_%i_%i.pkl" %(TA, SNR))
+            df.to_pickle("local_data/results/Seperate_SNR_1_layer_ANN_result_%i_%i.pkl" %(TA, SNR))
     return df
 
 
