@@ -217,7 +217,7 @@ def cross_validate(data,node_min=4,node_max=16,n_nodes=7):
                 print(df)
 
                 i += 1
-            df.to_pickle("local_data/results/Seperate_SNR_2_layer_ANN_result_%i_%i.pkl" %(TA, SNR))
+            df.to_pickle("/content/Measuring_Cognitive_Load_DTU_WSAudiology/local_data/results/Seperate_SNR_2_layer_ANN_result_%i_%i.pkl" %(TA, SNR))
     return df
 
 
