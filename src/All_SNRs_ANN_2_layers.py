@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jun 17 22:34:36 2020
+Predict speech envelope from EEG using ANN
 
+Build ANN model with 2 hidden layers using Keras for every SNR value; I.e., -5, 0 & 5 DB, respectively. 
+Trains using 2-layer leave-trial-out CV, to find number of nodes in first hidden layer. 
+Pearson's R correlation coefficient is used as loss function; and for validation.
+    
 """
+
 
 # Load dependencies
 from os import path, chdir
 from data_load import getData, random_trial
 import numpy as np
-from scipy.stats import pearsonr
 import pandas as pd
 from keras.models import Sequential
 from keras.layers import Dense, Dropout
@@ -25,6 +29,10 @@ def corr_loss(act,pred):
 
 # +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
+# Modified above function to use for Pearson R correlation coefficient calculation
+def corr(act,pred):          
+    cov=(K.mean((act-K.mean(act))*(pred-K.mean(pred))))
+    return (cov/(K.std(act)*K.std(pred)+K.epsilon()))
 
 def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
     """
@@ -33,16 +41,16 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
     ----------
     data : Pandas Dataframe
         load dataframe using from data_load, using getData function.
-    lambda_config : tuple, optional
-        Lambda range for Ridge regression. The default is (2e0, 2e20, 11). Range from
-        Cross et al 2016 publication.
-    t_config : tuple, optional
-        Jitter lag range for MNE in ms. The default is (-.25, .1).
-
+    node_min : Int, optional
+        Min nr. of nodes in range of nodes to loop over in inner CV loop
+    node_max : Int, optional
+        Max nr. of nodes in range of nodes to loop over in inner CV loop
+    n_nodes : Int, optional
+        Number, N, of nodes to loop over in inner CV loop
 
     Returns
     -------
-    NA
+    Pickle file with dataframe of results;
 
     """
 
@@ -75,13 +83,13 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
             SNR_order.append(trials) # Store the order
 
         # Get the lowest possible k for k-fold
-        K = np.inf
+        H = np.inf
         for order in SNR_order:
-            if len(order) < K:
-                K = len(order)
+            if len(order) < H:
+                H = len(order)
 
         # Outer fold
-        for k in range(K):
+        for k in range(H):
             # Split into test and training
             data_train = data_sub
             data_test = pd.DataFrame()
@@ -91,7 +99,7 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
                 data_train = data_train.drop(data_train[(data_train["SNR"] == i) & (data_train["trial"] == SNR_order[i][k])].index)
 
             # Initiate errors for inner fold validations
-            vals = np.zeros((K-1, n_nodes))
+            vals = np.zeros((H-1, n_nodes))
 
             # Get the list of validation trials
             SNR_valid_order = SNR_order.copy()
@@ -99,8 +107,8 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
                 SNR_valid_order[i] = np.delete(SNR_valid_order[i],k)
 
             # Inner fold
-            for j in range(K-1):
-                print("TA: %i / %i\n\tFold: %i / %i\n\tInner fold: %i / %i" %(TA + 1, len(TAs), k + 1, K, j + 1, K-1))
+            for j in range(H-1):
+                print("TA: %i / %i\n\tFold: %i / %i\n\tInner fold: %i / %i" %(TA + 1, len(TAs), k + 1, H, j + 1, H-1))
                 # Find optimal hyperparameter
 
                 data_valid_train = data_train
@@ -112,7 +120,7 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
 
                 i = 0
                 for l in nodes:
-                # Define model with l parameter
+                  # Define model with l parameter
                    model = Sequential()
                    model.add(BatchNormalization())
                    model.add(Dense(units=l, activation='tanh',input_shape=(np.asarray(data_valid_train[data.columns[:16]]).shape[0], np.asarray(data_valid_train[data.columns[:16]]).shape[1])))
@@ -132,7 +140,7 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
                    # Compute cross correlation for regressional value
                    val = np.zeros(len(SNR_order))
                    for i_ in range(len(SNR_order)):
-                       val[i_] = pearsonr(np.asarray(data_valid_test[data_valid_test["SNR"] == i_]["target"]).reshape(-1, 1),model.predict(np.asarray(data_valid_test[data_valid_test["SNR"] == i_][data.columns[:16]])))[0]
+                       val[i_] = model.evaluate(np.asarray(data_valid_test[data_valid_test["SNR"] == i_][data.columns[:16]]), np.asarray(data_valid_test[data_valid_test["SNR"] == i_]["target"]))
                    # Add score to matrix
                    vals[j, i] = np.mean(val)
 
@@ -142,7 +150,7 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
             # Get optimal parameter
             param_score = np.sum(vals, axis = 0)
 
-            node_opt = nodes[np.argmax(param_score)]
+            node_opt = nodes[np.argmin(param_score)]
             print("Optimal lambda = %f" %node_opt)
 
             # Train optimal model        
@@ -163,22 +171,26 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
 
             # Fit model to train data
             model_opt.fit(np.asarray(data_train[data.columns[:16]]), np.asarray(data_train["target"]), epochs=30, verbose=2, shuffle=False)     
-
             for i in range(len(SNR_order)):
                 # Predict envelope
                 data_test_SNR = data_test[data_test["SNR"] == i]
                 y_pred = model_opt.predict(np.asarray(data_test_SNR[data.columns[:16]]))
                 y_rand = random_trial(data, TA = TA, trial = SNR_order[i][k])["target"]
 
-                corr_true = pearsonr(y_pred, np.asarray(data_test_SNR["target"]).reshape(-1, 1))
-                corr_mask = pearsonr(y_pred, np.asarray(data_test_SNR["mask"]).reshape(-1, 1))
-                corr_rand = pearsonr(y_pred, np.asarray(y_rand).reshape(-1, 1))
+                # Compute Pearson R between predicted envelope and attended speech
+                corr_true = corr(K.constant(np.asarray(data_test_SNR["target"])),K.constant(y_pred))
+                
+                # Compute Pearson R between predicted envelope and unattended speech
+                corr_mask = corr(K.constant(np.asarray(data_test_SNR["mask"])),K.constant(y_pred))
+                
+                # Compute Pearson R between predicted envelope and random speech
+                corr_rand = corr(K.constant(np.asarray(y_rand)),K.constant(y_pred))
 
                 # Convert to DataFrame
                 data_results = np.zeros((1, len(df_cols)))
-                data_results[:, 0] = corr_true[0]
-                data_results[:, 1] = corr_mask[0]
-                data_results[:, 2] = corr_rand[0]
+                data_results[:, 0] = np.asarray(corr_true)
+                data_results[:, 1] = np.asarray(corr_mask)
+                data_results[:, 2] = np.asarray(corr_rand)
                 data_results[:, 3] = TA
                 data_results[:, 4] = node_opt
                 data_results[:, 5] = i
@@ -187,7 +199,7 @@ def cross_validate(data, TA = None, node_min=4,node_max=16,n_nodes=7):
 
                 # Concatenate
                 df = pd.concat([df, df_], ignore_index = True)
-            df.to_pickle("local_data/results/ALL_SNR_2_layers_ANN_result_%i_%i.pkl" %(TA, k))
+            df.to_pickle("/content/Measuring_Cognitive_Load_DTU_WSAudiology/local_data/results/ALL_SNR_2_layer_ANN_result_%i_%i.pkl" %(TA, k))
     print("Done")
     return df
 
@@ -200,4 +212,3 @@ if __name__ == "__main__":
 
     # Run the script
     results = cross_validate(data,node_min=4,node_max=16,n_nodes=7)
-
