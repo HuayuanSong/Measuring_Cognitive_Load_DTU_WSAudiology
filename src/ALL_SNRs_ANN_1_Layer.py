@@ -185,7 +185,7 @@ def cross_validate(data, TA = None, node_min=2,node_max=5,n_nodes=4):
 
                 # Concatenate
                 df = pd.concat([df, df_], ignore_index = True)
-            df.to_pickle("local_data/results/ALL_SNR_1_layer_ANN_result_%i_%i.pkl" %(TA, k))
+            df.to_pickle("/content/Measuring_Cognitive_Load_DTU_WSAudiology/local_data/results/ALL_SNR_1_layer_ANN_result_%i_%i.pkl" %(TA, k))
     print("Done")
     return df
 
